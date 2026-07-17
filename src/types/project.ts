@@ -29,6 +29,10 @@ export interface Project {
   images: string[] | null
   video_url: string | null
   tags: string[] | null
+  /** "Tools + Tech" column in the graphics detail panel (e.g. Figma, GSAP). */
+  tools: string[] | null
+  /** "Scope" column in the graphics detail panel (e.g. Art Direction, UI). */
+  scope: string[] | null
   visible: boolean
   sort_order: number
   created_at: string
@@ -109,6 +113,12 @@ const projectBaseSchema = z.object({
   tags: z
     .array(z.string().trim().max(30, 'Each tag must be 30 characters or fewer.'))
     .max(10, 'You can add up to 10 tags.'),
+  tools: z
+    .array(z.string().trim().max(40, 'Each tool must be 40 characters or fewer.'))
+    .max(20, 'You can add up to 20 tools.'),
+  scope: z
+    .array(z.string().trim().max(40, 'Each scope item must be 40 characters or fewer.'))
+    .max(20, 'You can add up to 20 scope items.'),
   visible: z.boolean(),
   sort_order: z.int().nonnegative('Sort order must be zero or a positive whole number.'),
 })

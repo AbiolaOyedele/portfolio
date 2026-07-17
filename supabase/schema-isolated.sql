@@ -186,3 +186,15 @@ grant execute on function portfolio.increment_project_vote(uuid, text) to anon, 
 --    a test project to confirm writes work through the RLS policy.
 --
 -- ============================================================================
+
+-- ============================================================================
+-- Migration: per-project "Tools + Tech" and "Scope" metadata (graphics detail
+-- panel). Two text[] columns, mirroring the existing `tags`/`images` array
+-- columns. Idempotent — safe to re-run against the live project.
+--
+-- THIS BLOCK MUST BE RUN MANUALLY IN THE SUPABASE SQL EDITOR (no automated
+-- migration runner exists — see header note).
+-- ============================================================================
+alter table portfolio.projects
+  add column if not exists tools text[],
+  add column if not exists scope text[];

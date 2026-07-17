@@ -1,13 +1,11 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { AnimatePresence } from 'framer-motion'
 import { useVotedProjects } from '@/hooks/useVotedProjects'
 import type { Project, VoteResult } from '@/types/project'
 import { GraphicsCanvas } from './GraphicsCanvas'
 import { TileFocusOverlay } from './TileFocusOverlay'
 import { ProjectDetailModal } from './ProjectDetailModal'
-import { CustomCursor } from './CustomCursor'
 
 export interface GraphicsExperienceProps {
   projects: Project[]
@@ -52,35 +50,30 @@ export function GraphicsExperience({ projects }: GraphicsExperienceProps): React
 
   return (
     <>
-      <CustomCursor />
       <GraphicsCanvas
         projects={projects}
         isInert={focusedProject !== null}
         focusedProjectId={focusedProject?.id ?? null}
         onCardFocus={handleCardFocus}
       />
-      <AnimatePresence>
-        {focusedProject && (
-          <TileFocusOverlay
-            project={focusedProject}
-            isDetailOpen={isDetailOpen}
-            onClose={handleCloseFocus}
-            onMoreInfo={() => setIsDetailOpen(true)}
-          />
-        )}
-      </AnimatePresence>
-      <AnimatePresence>
-        {focusedProject && isDetailOpen && (
-          <ProjectDetailModal
-            project={focusedProject}
-            voteOverrides={voteOverrides}
-            votedIds={votedIds}
-            onVoted={handleVoted}
-            onMarkVoted={markVoted}
-            onClose={() => setIsDetailOpen(false)}
-          />
-        )}
-      </AnimatePresence>
+      {focusedProject && (
+        <TileFocusOverlay
+          project={focusedProject}
+          isDetailOpen={isDetailOpen}
+          onClose={handleCloseFocus}
+          onMoreInfo={() => setIsDetailOpen(true)}
+        />
+      )}
+      {focusedProject && isDetailOpen && (
+        <ProjectDetailModal
+          project={focusedProject}
+          voteOverrides={voteOverrides}
+          votedIds={votedIds}
+          onVoted={handleVoted}
+          onMarkVoted={markVoted}
+          onClose={() => setIsDetailOpen(false)}
+        />
+      )}
     </>
   )
 }

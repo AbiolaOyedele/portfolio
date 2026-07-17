@@ -90,9 +90,10 @@ export default function RotatingHero(): ReactElement {
     let tick = 0
     const id = window.setInterval(() => {
       const line = tick % LINES.length
+      const wordCount = LINES[line]?.words.length ?? 1
       setIndices((prev) => {
         const next: [number, number, number] = [...prev]
-        next[line] = (prev[line] + 1) % LINES[line].words.length
+        next[line] = ((prev[line] ?? 0) + 1) % wordCount
         return next
       })
       tick += 1
@@ -100,7 +101,7 @@ export default function RotatingHero(): ReactElement {
     return () => window.clearInterval(id)
   }, [])
 
-  const srLabel = LINES.map((l, i) => `${l.prefix} ${l.words[indices[i]]}`).join(' ')
+  const srLabel = LINES.map((l, i) => `${l.prefix} ${l.words[indices[i] ?? 0]}`).join(' ')
 
   return (
     <h1 className="text-text-primary leading-[1.05] tracking-tight text-[clamp(2.25rem,11vw,8rem)]">
@@ -112,7 +113,7 @@ export default function RotatingHero(): ReactElement {
           // matching the reference. Desktop (sm+): they sit inline, baseline-aligned.
           <span key={line.prefix} className="flex flex-col sm:flex-row sm:items-baseline sm:gap-x-[0.25em]">
             <span>{line.prefix}</span>
-            <RotatingWord word={line.words[indices[i]]} />
+            <RotatingWord word={line.words[indices[i] ?? 0] ?? line.words[0]} />
           </span>
         ))}
       </span>

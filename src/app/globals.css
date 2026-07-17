@@ -15,6 +15,10 @@
   --color-playground: #EDFAEE;
   --shadow-card: 0 2px 12px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.04);
   --shadow-card-hover: 0 8px 32px rgba(0,0,0,0.10), 0 2px 8px rgba(0,0,0,0.06);
+  /* Reference (hamzatariq.info) three-layer UI shadow + soft canvas backdrop,
+     used by the /graphics immersive experience for its floating pills/cards. */
+  --shadow-ui: 0 8px 24px 0 rgba(17,17,26,0.10), 0 16px 56px 0 rgba(17,17,26,0.10), 0 24px 80px 0 rgba(17,17,26,0.10);
+  --color-canvas: #f1f1f1;
   --default-font-family: var(--font-noir-pro), system-ui, sans-serif;
   --font-sans: var(--font-noir-pro), system-ui, sans-serif;
 }

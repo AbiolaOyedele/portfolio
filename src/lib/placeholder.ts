@@ -25,11 +25,26 @@ function img(seed: string, w = 800, h = 500): string {
  * likes/dislikes use the same deterministic hash as masonry layout so they
  * don't change between server and client renders.
  */
-const graphicsPlaceholders: Project[] = GRAPHICS_PLACEHOLDER_IMAGES.map((image, index) => {
+type RawProject = Omit<Project, 'tools' | 'scope'>
+
+// A few muted-loop sample clips, spread across the canvas so the video-tile
+// mechanic (hover-to-play, badge-on-discovery) is exercised end-to-end until
+// real hosted clips exist. Keyed by tile index → local /public path.
+const SAMPLE_VIDEOS = [
+  '/graphics/videos/vid-01.mp4',
+  '/graphics/videos/vid-02.mp4',
+  '/graphics/videos/vid-03.mp4',
+  '/graphics/videos/vid-04.mp4',
+] as const
+const VIDEO_TILE_INTERVAL = 13 // roughly every 13th tile is a video
+
+const graphicsPlaceholders: RawProject[] = GRAPHICS_PLACEHOLDER_IMAGES.map((image, index) => {
   const n = index + 1
   const padded = String(n).padStart(2, '0')
   const id = `ph-graphics-${padded}`
   const hash = hashStringToInt(id)
+  const isVideo = index % VIDEO_TILE_INTERVAL === 2
+  const videoUrl = isVideo ? SAMPLE_VIDEOS[(index / VIDEO_TILE_INTERVAL | 0) % SAMPLE_VIDEOS.length]! : ''
   return {
     id,
     title: `Social Graphic ${padded}`,
@@ -40,7 +55,7 @@ const graphicsPlaceholders: Project[] = GRAPHICS_PLACEHOLDER_IMAGES.map((image, 
     description: 'Client social media design.',
     tags: ['Social Media', 'Design'],
     images: [],
-    video_url: '',
+    video_url: videoUrl,
     visible: true,
     sort_order: n,
     created_at: new Date(0).toISOString(),
@@ -67,7 +82,24 @@ landing page to launch film.`,
 }
 
 /* ─── Projects ───────────────────────────────────────────────── */
-export const placeholderProjects: Project[] = [
+/**
+ * Reasonable default "Tools + Tech" / "Scope" for placeholder rows, derived
+ * from the project category (real rows carry their own DB values). Keeps the
+ * graphics detail panel populated before the admin fills in real metadata.
+ */
+function defaultToolsScope(category: Project['category']): { tools: string[]; scope: string[] } {
+  switch (category) {
+    case 'motion':
+      return { tools: ['After Effects', 'Cinema 4D', 'Figma'], scope: ['Motion Design', 'Art Direction'] }
+    case 'playground':
+      return { tools: ['React', 'TypeScript', 'Next.js', 'Tailwind'], scope: ['Web', 'Product', 'Engineering'] }
+    case 'graphics':
+    default:
+      return { tools: ['Photoshop', 'Illustrator', 'Figma'], scope: ['Art Direction', 'Social Design'] }
+  }
+}
+
+const rawPlaceholders: RawProject[] = [
   /* ── GRAPHICS ── */
   ...graphicsPlaceholders,
 
@@ -170,3 +202,8 @@ above 95.`,
     dislikes: 3,
   },
 ]
+
+export const placeholderProjects: Project[] = rawPlaceholders.map((p) => ({
+  ...p,
+  ...defaultToolsScope(p.category),
+}))

@@ -1,18 +1,11 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { motion } from 'framer-motion'
 import { Folder, LayoutGrid } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { computeMasonryLayout, MASONRY_BUCKETS, type MasonryBucket } from '@/lib/masonry'
+import { computeGraphicsBlock, getGraphicsBucket, GRAPHICS_BUCKETS } from '@/lib/graphics-layout'
 import { GRAPHICS_SUBCATEGORIES, type Project } from '@/types/project'
 import { GraphicsCanvasCard } from './GraphicsCanvasCard'
-
-function getBucket(width: number): MasonryBucket {
-  if (width >= 1024) return MASONRY_BUCKETS.desktop
-  if (width >= 640) return MASONRY_BUCKETS.tablet
-  return MASONRY_BUCKETS.mobile
-}
 
 // null = "All" — first stop in the cycle the category pill steps through.
 const FILTER_CYCLE: readonly (string | null)[] = [null, ...GRAPHICS_SUBCATEGORIES.map((sub) => sub.key)]
@@ -22,6 +15,9 @@ function filterLabel(filter: string | null): string {
   return GRAPHICS_SUBCATEGORIES.find((sub) => sub.key === filter)?.label ?? 'All'
 }
 
+const INERTIA_DECAY = 0.92
+const MIN_VELOCITY = 0.05
+
 export interface GraphicsCanvasProps {
   projects: Project[]
   isInert: boolean
@@ -30,40 +26,142 @@ export interface GraphicsCanvasProps {
 }
 
 /**
- * Pannable/draggable canvas of blurred, spotlight-revealed project cards —
- * the /graphics landing experience. Clicking a card hands focus up to
- * `GraphicsExperience`, which renders the zoomed `TileFocusOverlay`; this
- * component only owns pan/layout/filter/discovery-count state.
+ * Infinite, free-scrolling canvas of scratch-to-reveal tiles. One repeatable
+ * block of columns is tiled across the viewport in both axes and wrapped with
+ * modular arithmetic, so panning (pointer drag with velocity inertia) and
+ * trackpad/wheel scrolling roam endlessly in every direction. Pan is applied
+ * imperatively to a single transform — the tile DOM never re-renders while
+ * moving.
  */
 export function GraphicsCanvas({ projects, isInert, focusedProjectId, onCardFocus }: GraphicsCanvasProps): React.JSX.Element {
   const wrapperRef = useRef<HTMLDivElement>(null)
-  // Measured once on mount (like useResponsiveSizes() in circle-menu.tsx),
-  // deliberately not re-measured on resize — relaying-out mid-pan would
-  // relocate every card under an actively panning/scratching pointer.
-  const [bucket, setBucket] = useState<MasonryBucket>(MASONRY_BUCKETS.mobile)
+  const innerRef = useRef<HTMLDivElement>(null)
+
+  const [bucket, setBucket] = useState(GRAPHICS_BUCKETS.mobile)
+  const [viewport, setViewport] = useState({ w: 0, h: 0 })
   const [activeFilter, setActiveFilter] = useState<string | null>(null)
   const [revealedIds, setRevealedIds] = useState<Set<string>>(new Set())
+  const [showTooltip, setShowTooltip] = useState(true)
+
+  // Pan + inertia live in refs so movement never triggers React renders.
+  const panRef = useRef({ x: 0, y: 0 })
+  const velocityRef = useRef({ x: 0, y: 0 })
+  const dragRef = useRef<{ active: boolean; lastX: number; lastY: number; lastT: number }>({
+    active: false,
+    lastX: 0,
+    lastY: 0,
+    lastT: 0,
+  })
+  const rafRef = useRef<number | null>(null)
 
   useEffect(() => {
-    setBucket(getBucket(window.innerWidth))
+    const measure = (): void => {
+      setBucket(getGraphicsBucket(window.innerWidth))
+      setViewport({ w: window.innerWidth, h: window.innerHeight })
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
   }, [])
 
-  const { layouts, canvasWidth, canvasHeight } = useMemo(
-    () => computeMasonryLayout(projects, bucket),
+  const { tiles, blockWidth, blockHeight } = useMemo(
+    () => computeGraphicsBlock(projects, bucket),
     [projects, bucket],
   )
 
-  const visibleProjects = useMemo(
-    () => (activeFilter ? projects.filter((p) => p.subcategory === activeFilter) : projects),
-    [projects, activeFilter],
-  )
-  const visibleIds = useMemo(() => new Set(visibleProjects.map((p) => p.id)), [visibleProjects])
-  const revealedInFilter = useMemo(
-    () => visibleProjects.filter((p) => revealedIds.has(p.id)).length,
-    [visibleProjects, revealedIds],
-  )
+  // Enough block copies to cover the viewport plus a one-block margin each way.
+  const cols = viewport.w > 0 ? Math.ceil(viewport.w / blockWidth) + 2 : 3
+  const rows = viewport.h > 0 ? Math.ceil(viewport.h / blockHeight) + 2 : 3
 
-  const handleFirstReveal = (id: string): void => {
+  const applyTransform = (): void => {
+    const inner = innerRef.current
+    if (!inner) return
+    const wrapX = ((panRef.current.x % blockWidth) + blockWidth) % blockWidth
+    const wrapY = ((panRef.current.y % blockHeight) + blockHeight) % blockHeight
+    inner.style.transform = `translate3d(${wrapX - blockWidth}px, ${wrapY - blockHeight}px, 0)`
+  }
+
+  // Keep the wrap correct whenever the block size (breakpoint) changes.
+  useEffect(applyTransform, [blockWidth, blockHeight, cols, rows])
+
+  const stopInertia = (): void => {
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current)
+      rafRef.current = null
+    }
+  }
+
+  const runInertia = (): void => {
+    const step = (): void => {
+      const v = velocityRef.current
+      panRef.current.x += v.x
+      panRef.current.y += v.y
+      v.x *= INERTIA_DECAY
+      v.y *= INERTIA_DECAY
+      applyTransform()
+      if (Math.abs(v.x) > MIN_VELOCITY || Math.abs(v.y) > MIN_VELOCITY) {
+        rafRef.current = requestAnimationFrame(step)
+      } else {
+        rafRef.current = null
+      }
+    }
+    stopInertia()
+    rafRef.current = requestAnimationFrame(step)
+  }
+
+  const dismissTooltip = (): void => setShowTooltip(false)
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>): void => {
+    stopInertia()
+    dismissTooltip()
+    dragRef.current = { active: true, lastX: e.clientX, lastY: e.clientY, lastT: performance.now() }
+    velocityRef.current = { x: 0, y: 0 }
+    e.currentTarget.setPointerCapture(e.pointerId)
+  }
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>): void => {
+    const drag = dragRef.current
+    if (!drag.active) return
+    const now = performance.now()
+    const dx = e.clientX - drag.lastX
+    const dy = e.clientY - drag.lastY
+    const dt = Math.max(1, now - drag.lastT)
+    panRef.current.x += dx
+    panRef.current.y += dy
+    velocityRef.current = { x: (dx / dt) * 16, y: (dy / dt) * 16 }
+    drag.lastX = e.clientX
+    drag.lastY = e.clientY
+    drag.lastT = now
+    applyTransform()
+  }
+
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>): void => {
+    if (!dragRef.current.active) return
+    dragRef.current.active = false
+    e.currentTarget.releasePointerCapture(e.pointerId)
+    runInertia()
+  }
+
+  // Trackpad / wheel = free 2D scroll in every direction.
+  useEffect(() => {
+    const el = wrapperRef.current
+    if (!el) return
+    const onWheel = (e: WheelEvent): void => {
+      e.preventDefault()
+      stopInertia()
+      dismissTooltip()
+      panRef.current.x -= e.deltaX
+      panRef.current.y -= e.deltaY
+      applyTransform()
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blockWidth, blockHeight])
+
+  useEffect(() => stopInertia, [])
+
+  const handleReveal = (id: string): void => {
     setRevealedIds((prev) => {
       if (prev.has(id)) return prev
       const next = new Set(prev)
@@ -74,53 +172,91 @@ export function GraphicsCanvas({ projects, isInert, focusedProjectId, onCardFocu
 
   const handleCycleFilter = (): void => {
     const currentIndex = FILTER_CYCLE.indexOf(activeFilter)
-    const nextFilter = FILTER_CYCLE[(currentIndex + 1) % FILTER_CYCLE.length]
-    setActiveFilter(nextFilter ?? null)
+    setActiveFilter(FILTER_CYCLE[(currentIndex + 1) % FILTER_CYCLE.length] ?? null)
   }
 
-  return (
-    <div ref={wrapperRef} className="relative h-dvh w-full touch-none overflow-hidden bg-bg" inert={isInert}>
-      <motion.div
-        drag
-        dragConstraints={wrapperRef}
-        dragElastic={0.05}
-        className={cn('absolute touch-none transition-[filter,opacity] duration-300', isInert && 'blur-md opacity-40')}
-        style={{ width: canvasWidth, height: canvasHeight }}
-      >
-        {projects.map((project, index) => (
-          <GraphicsCanvasCard
-            key={project.id}
-            project={project}
-            layout={layouts[index]!}
-            isVisible={visibleIds.has(project.id)}
-            isFocused={focusedProjectId === project.id}
-            onFocus={() => onCardFocus(project)}
-            onFirstReveal={handleFirstReveal}
-          />
-        ))}
-      </motion.div>
+  const isTileVisible = (project: Project): boolean =>
+    activeFilter === null || project.subcategory === activeFilter
 
+  const copyIndices = useMemo(
+    () => Array.from({ length: rows }, (_, r) => Array.from({ length: cols }, (_, c) => ({ c, r }))).flat(),
+    [rows, cols],
+  )
+
+  return (
+    <div
+      ref={wrapperRef}
+      className={cn(
+        'fixed inset-0 touch-none select-none overflow-hidden bg-canvas',
+        isInert ? 'pointer-events-none' : 'cursor-grab active:cursor-grabbing',
+      )}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
+      aria-hidden={isInert}
+    >
+      <div
+        ref={innerRef}
+        className={cn('absolute left-0 top-0 will-change-transform transition-[filter,opacity] duration-300', isInert && 'blur-md opacity-40')}
+        style={{ transform: `translate3d(-${blockWidth}px, -${blockHeight}px, 0)` }}
+      >
+        {copyIndices.map(({ c, r }) => (
+          <div
+            key={`copy-${c}-${r}`}
+            className="absolute"
+            style={{ left: c * blockWidth, top: r * blockHeight, width: blockWidth, height: blockHeight }}
+          >
+            {tiles.map((tile) => (
+              <div
+                key={`${tile.project.id}-${c}-${r}`}
+                className="absolute"
+                style={{ left: tile.left, top: tile.top, width: tile.width, height: tile.height }}
+              >
+                <GraphicsCanvasCard
+                  project={tile.project}
+                  aspect={tile.aspect}
+                  isVisible={isTileVisible(tile.project)}
+                  isRevealed={revealedIds.has(tile.project.id)}
+                  isFocused={focusedProjectId === tile.project.id}
+                  onReveal={handleReveal}
+                  onFocus={() => onCardFocus(tile.project)}
+                />
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+
+      {/* Tooltip — reference copy, shown until the first interaction. */}
       <div
         className={cn(
-          'absolute bottom-6 left-4 z-10 flex items-center gap-2 transition-opacity duration-200 sm:bottom-8 sm:left-6 lg:bottom-12 lg:left-10',
+          'pointer-events-none absolute left-1/2 top-6 z-20 -translate-x-1/2 rounded-full border border-black/10 bg-[#3399FF] px-3 py-1.5 text-[14px] leading-tight text-white shadow-ui transition-opacity duration-300',
+          showTooltip && !isInert ? 'opacity-100' : 'opacity-0',
+        )}
+      >
+        Hover, drag, and click to explore.
+      </div>
+
+      {/* Category pill — bottom-center, cycles All → subcategories (no counter). */}
+      <div
+        className={cn(
+          'absolute bottom-8 left-1/2 z-20 -translate-x-1/2 transition-opacity duration-200',
           isInert && 'pointer-events-none opacity-0',
         )}
       >
         <button
           type="button"
           onClick={handleCycleFilter}
-          className="flex h-11 min-w-[152px] items-center justify-between gap-3 rounded-full border border-border bg-surface px-4 text-[13px] text-text-primary shadow-card transition-colors hover:border-accent"
+          onPointerDown={(e) => e.stopPropagation()}
+          className="flex h-14 w-[200px] items-center justify-between rounded-full border border-black/10 bg-white px-5 text-[16px] text-black shadow-ui transition-transform duration-200 hover:scale-[1.025] active:scale-95"
         >
           <span className="flex items-center gap-2">
-            <Folder className="h-4 w-4 text-accent" />
+            <Folder className="h-4 w-4 text-[#2384E6]" />
             {filterLabel(activeFilter)}
           </span>
-          <LayoutGrid className="h-4 w-4 text-text-muted" />
+          <LayoutGrid className="h-4 w-4 text-black/40" />
         </button>
-
-        <div className="flex h-11 items-center rounded-full border border-border bg-surface px-4 text-[13px] text-text-secondary shadow-card">
-          {revealedInFilter}/{visibleProjects.length}
-        </div>
       </div>
     </div>
   )

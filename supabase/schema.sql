@@ -149,3 +149,11 @@ $$;
 -- roles that need it.
 revoke all on function increment_project_vote(uuid, text) from public;
 grant execute on function increment_project_vote(uuid, text) to anon, authenticated;
+
+-- ============================================================================
+-- Migration: per-project "Tools + Tech" and "Scope" metadata (graphics detail
+-- panel). Reference/documentation copy — run in the Supabase SQL editor.
+-- ============================================================================
+alter table projects
+  add column if not exists tools text[],
+  add column if not exists scope text[];

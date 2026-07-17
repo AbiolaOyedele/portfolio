@@ -26,6 +26,8 @@ interface ProjectFormValues {
   images: string[]
   video_url: string
   tagsInput: string
+  toolsInput: string
+  scopeInput: string
   visible: boolean
   sort_order: string
 }
@@ -45,6 +47,8 @@ const EMPTY_VALUES: ProjectFormValues = {
   images: [],
   video_url: '',
   tagsInput: '',
+  toolsInput: '',
+  scopeInput: '',
   visible: true,
   sort_order: '0',
 }
@@ -60,9 +64,19 @@ function toFormValues(project: Project): ProjectFormValues {
     images: project.images ?? [],
     video_url: project.video_url ?? '',
     tagsInput: (project.tags ?? []).join(', '),
+    toolsInput: (project.tools ?? []).join(', '),
+    scopeInput: (project.scope ?? []).join(', '),
     visible: project.visible,
     sort_order: String(project.sort_order),
   }
+}
+
+/** Split a comma-separated input into a trimmed, empty-filtered string array. */
+function splitCsv(value: string): string[] {
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
 }
 
 const FIELD_CLASSES =
@@ -115,6 +129,8 @@ export default function ProjectForm({ defaultValues }: ProjectFormProps): React.
       { keyword: 'image', field: 'images' },
       { keyword: 'Video URL', field: 'video_url' },
       { keyword: 'tag', field: 'tagsInput' },
+      { keyword: 'tool', field: 'toolsInput' },
+      { keyword: 'scope', field: 'scopeInput' },
       { keyword: 'Sort order', field: 'sort_order' },
     ]
 
@@ -142,10 +158,9 @@ export default function ProjectForm({ defaultValues }: ProjectFormProps): React.
       cover_url: values.cover_url || null,
       images: values.images,
       video_url: values.video_url || null,
-      tags: values.tagsInput
-        .split(',')
-        .map((t) => t.trim())
-        .filter(Boolean),
+      tags: splitCsv(values.tagsInput),
+      tools: splitCsv(values.toolsInput),
+      scope: splitCsv(values.scopeInput),
       visible: values.visible,
       sort_order: Number.isNaN(parsedSortOrder) ? 0 : parsedSortOrder,
     }
@@ -278,6 +293,26 @@ export default function ProjectForm({ defaultValues }: ProjectFormProps): React.
           value={values.tagsInput}
           onChange={(e) => updateField('tagsInput', e.target.value)}
           placeholder="branding, logo, identity"
+          className={FIELD_CLASSES}
+        />
+      </FormField>
+
+      <FormField label="Tools + Tech (comma-separated)" error={fieldErrors.toolsInput}>
+        <input
+          type="text"
+          value={values.toolsInput}
+          onChange={(e) => updateField('toolsInput', e.target.value)}
+          placeholder="Figma, Photoshop, GSAP"
+          className={FIELD_CLASSES}
+        />
+      </FormField>
+
+      <FormField label="Scope (comma-separated)" error={fieldErrors.scopeInput}>
+        <input
+          type="text"
+          value={values.scopeInput}
+          onChange={(e) => updateField('scopeInput', e.target.value)}
+          placeholder="Art Direction, UI Design"
           className={FIELD_CLASSES}
         />
       </FormField>

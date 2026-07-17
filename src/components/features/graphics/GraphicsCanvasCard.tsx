@@ -1,47 +1,69 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
-import { motion } from 'framer-motion'
+import { useEffect, useRef, useState } from 'react'
 import Image from 'next/image'
 import { cloudinaryUrl } from '@/lib/cloudinary'
 import { cn } from '@/lib/utils'
-import type { CardLayout } from '@/lib/masonry'
 import type { Project } from '@/types/project'
 
-const REVEAL_RADIUS = 75
-// The real performance lever: a new point is only recorded once the pointer
-// has moved this far from the last one, bounding point density by geometry
-// rather than by evicting old points (an evicting ring buffer would
-// un-reveal earlier strokes, contradicting the "stays revealed permanently"
-// behavior this is modeled on).
+const REVEAL_RADIUS = 78
+// A new mask point is only recorded once the pointer has moved this far from
+// the last one — bounds point density by geometry rather than by evicting old
+// points (which would un-reveal earlier strokes).
 const MIN_POINT_DISTANCE = 16
-// Hard ceiling, never evicted. By the time this many well-spaced points
-// exist on a card this size at a 75px reveal radius, the card is already at
-// or near full visual coverage — freezing further movement is imperceptible.
-const MAX_POINTS = 220
+const MAX_POINTS = 240
+// Coarse grid cell used to estimate how much of the card has been scratched.
+const COVERAGE_CELL = 56
+// Once this fraction of the card is scratched, snap the whole tile open —
+// the "scratch 60–80% → it just reveals" behaviour.
+const AUTO_REVEAL_COVERAGE = 0.7
+
+/** A local `/graphics/videos/*.mp4` (or any .mp4) plays inline as a video tile. */
+function isPlayableVideo(url: string | null): url is string {
+  return !!url && /\.mp4($|\?)/i.test(url)
+}
 
 export interface GraphicsCanvasCardProps {
   project: Project
-  layout: CardLayout
+  aspect: number
+  /** Hidden (filtered out) tiles stay mounted but non-interactive. */
   isVisible: boolean
+  /** Fully revealed (threshold hit, clicked, or another copy revealed it). */
+  isRevealed: boolean
   isFocused: boolean
+  onReveal: (id: string) => void
   onFocus: () => void
-  onFirstReveal: (id: string) => void
 }
 
+/**
+ * A single canvas tile. Starts blurred; the pointer "scratches" a sharp layer
+ * into view through an accumulating radial-gradient mask, and once ~70% of the
+ * tile has been scratched it snaps fully open. Video tiles play their muted
+ * loop on hover/focus, and the "video" badge only appears once discovered —
+ * matching the reference's discovery mechanic on top of the scratch reveal.
+ */
 export function GraphicsCanvasCard({
   project,
-  layout,
+  aspect,
   isVisible,
+  isRevealed,
   isFocused,
+  onReveal,
   onFocus,
-  onFirstReveal,
 }: GraphicsCanvasCardProps): React.JSX.Element {
   const maskRef = useRef<HTMLDivElement>(null)
+  const videoRef = useRef<HTMLVideoElement>(null)
   const pointsRef = useRef<Array<{ x: number; y: number }>>([])
   const lastPointRef = useRef<{ x: number; y: number } | null>(null)
+  const cellsRef = useRef<Set<string>>(new Set())
   const rafRef = useRef<number | null>(null)
-  const hasRevealedRef = useRef(false)
+  const revealedRef = useRef(false)
+  const [hovered, setHovered] = useState(false)
+
+  const isVideo = isPlayableVideo(project.video_url)
+  const coverUrl = cloudinaryUrl(project.cover_url, { width: 640 })
+  // Discovered = threshold auto-reveal, click, or a sibling copy revealed it.
+  const discovered = isRevealed || revealedRef.current
 
   useEffect(() => {
     return () => {
@@ -56,10 +78,7 @@ export function GraphicsCanvasCard({
       const mask = maskRef.current
       if (!mask) return
       const gradients = pointsRef.current
-        .map(
-          (p) =>
-            `radial-gradient(circle ${REVEAL_RADIUS}px at ${p.x}px ${p.y}px, black 0%, black 60%, transparent 100%)`,
-        )
+        .map((p) => `radial-gradient(circle ${REVEAL_RADIUS}px at ${p.x}px ${p.y}px, black 0%, black 55%, transparent 100%)`)
         .join(', ')
       mask.style.setProperty('mask-image', gradients)
       mask.style.setProperty('-webkit-mask-image', gradients)
@@ -68,19 +87,17 @@ export function GraphicsCanvasCard({
     })
   }
 
-  // Pointer Events unify mouse-hover and touch-drag automatically — a
-  // pointermove for a touch input only fires while a finger is actually
-  // down, which is exactly the "reveals only while actively touching"
-  // behavior confirmed on the reference site's mobile view.
+  const markRevealed = (): void => {
+    if (revealedRef.current) return
+    revealedRef.current = true
+    onReveal(project.id)
+  }
+
   const handlePointerMove = (e: React.PointerEvent<HTMLButtonElement>): void => {
+    if (discovered) return
     const rect = e.currentTarget.getBoundingClientRect()
     const x = e.clientX - rect.left
     const y = e.clientY - rect.top
-
-    if (!hasRevealedRef.current) {
-      hasRevealedRef.current = true
-      onFirstReveal(project.id)
-    }
 
     const last = lastPointRef.current
     if (last) {
@@ -94,78 +111,106 @@ export function GraphicsCanvasCard({
       lastPointRef.current = { x, y }
       scheduleMaskUpdate()
     }
+
+    // Estimate coverage on a coarse grid; snap open past the threshold.
+    cellsRef.current.add(`${Math.floor(x / COVERAGE_CELL)},${Math.floor(y / COVERAGE_CELL)}`)
+    const cols = Math.max(1, Math.ceil(rect.width / COVERAGE_CELL))
+    const rows = Math.max(1, Math.ceil(rect.height / COVERAGE_CELL))
+    if (cellsRef.current.size / (cols * rows) >= AUTO_REVEAL_COVERAGE) markRevealed()
   }
 
-  // Claims the gesture so a drag starting on this card reveals it instead of
-  // bubbling up to pan the ancestor canvas out from under the same pointer.
+  // Claim the gesture so scratching a tile doesn't also pan the canvas.
   const handlePointerDown = (e: React.PointerEvent<HTMLButtonElement>): void => {
     e.stopPropagation()
   }
 
-  // A click is a valid "I found this" too, not just hover/drag reveal — so
-  // clicking a still-blurred card counts it before opening focus, instead of
-  // leaving the counter permanently undercounting cards someone jumped
-  // straight to.
   const handleClick = (): void => {
-    if (!hasRevealedRef.current) {
-      hasRevealedRef.current = true
-      onFirstReveal(project.id)
-    }
+    markRevealed()
     onFocus()
   }
 
-  const coverUrl = cloudinaryUrl(project.cover_url, { width: Math.round(layout.width * 2) })
+  const handleEnter = (): void => {
+    setHovered(true)
+    if (isVideo) void videoRef.current?.play().catch(() => {})
+  }
+
+  const handleLeave = (): void => {
+    setHovered(false)
+    if (isVideo && videoRef.current) videoRef.current.pause()
+  }
 
   return (
-    <motion.div
-      layoutId={`tile-${project.id}`}
-      className={cn('absolute transition-opacity duration-200', isVisible ? 'opacity-100' : 'pointer-events-none opacity-0')}
-      style={{ top: layout.top, left: layout.left, width: layout.width, height: layout.height }}
+    <button
+      type="button"
+      onClick={handleClick}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerEnter={handleEnter}
+      onPointerLeave={handleLeave}
+      aria-label={`Open ${project.title}`}
+      tabIndex={isVisible ? 0 : -1}
+      style={{ aspectRatio: aspect, opacity: isFocused || !isVisible ? 0 : 1 }}
+      className={cn(
+        'relative block h-full w-full touch-none overflow-hidden rounded-lg bg-surface transition-opacity duration-200',
+        !isVisible && 'pointer-events-none',
+      )}
     >
-      <button
-        type="button"
-        onClick={handleClick}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        aria-label={`Open ${project.title}`}
-        tabIndex={isVisible ? 0 : -1}
-        style={{ transform: `rotate(${layout.rotate}deg)`, opacity: isFocused ? 0 : 1 }}
-        className="relative block h-full w-full touch-none overflow-hidden rounded-2xl border border-border bg-surface shadow-card transition-opacity duration-150"
+      {/* Blurred base layer — the "undiscovered" state. */}
+      {coverUrl && (
+        <Image
+          src={coverUrl}
+          alt=""
+          aria-hidden="true"
+          fill
+          sizes="(max-width: 768px) 50vw, 25vw"
+          className="object-cover"
+          style={{ filter: discovered ? 'blur(0px)' : 'blur(8px)', transform: discovered ? 'none' : 'scale(1.06)', transition: 'filter 350ms ease-out, transform 350ms ease-out' }}
+        />
+      )}
+
+      {/* Sharp layer, scratched into view (or fully shown once discovered). */}
+      <div
+        ref={maskRef}
+        className="absolute inset-0"
+        style={
+          discovered
+            ? undefined
+            : {
+                maskImage: 'radial-gradient(circle 0px at 0px 0px, black 0%, transparent 100%)',
+                WebkitMaskImage: 'radial-gradient(circle 0px at 0px 0px, black 0%, transparent 100%)',
+              }
+        }
       >
-        {coverUrl && (
-          <Image
-            src={coverUrl}
-            alt=""
-            aria-hidden="true"
-            fill
-            sizes="(max-width: 768px) 50vw, 25vw"
-            className="object-cover"
-            style={{ filter: 'blur(14px)', transform: 'scale(1.1)' }}
+        {isVideo ? (
+          <video
+            ref={videoRef}
+            src={project.video_url ?? undefined}
+            poster={coverUrl || undefined}
+            muted
+            loop
+            playsInline
+            preload="metadata"
+            className="h-full w-full object-cover"
           />
+        ) : (
+          coverUrl && <Image src={coverUrl} alt={project.title} fill sizes="(max-width: 768px) 50vw, 25vw" className="object-cover" />
         )}
+      </div>
 
-        {/* Starts fully masked (zero-radius reveal) — without an explicit initial
-            mask, this layer would render completely unmasked (i.e. fully visible),
-            hiding the blurred layer beneath it entirely before any pointer interaction. */}
-        <div
-          ref={maskRef}
-          className="absolute inset-0"
-          style={{
-            maskImage: 'radial-gradient(circle 0px at 0px 0px, black 0%, transparent 100%)',
-            WebkitMaskImage: 'radial-gradient(circle 0px at 0px 0px, black 0%, transparent 100%)',
-          }}
-        >
-          {coverUrl && (
-            <Image src={coverUrl} alt={project.title} fill sizes="(max-width: 768px) 50vw, 25vw" className="object-cover" />
+      {/* Video badge — hidden until the tile is discovered, per the reference. */}
+      {isVideo && (
+        <span
+          className={cn(
+            'pointer-events-none absolute left-2 top-2 flex items-center gap-1 rounded-[4px] border border-black/10 bg-white px-1.5 py-0.5 text-[10px] font-medium text-black transition-opacity duration-200',
+            discovered && !hovered ? 'opacity-100' : 'opacity-0',
           )}
-        </div>
-
-        {project.video_url && (
-          <span className="absolute left-2 top-2 rounded-full border border-border bg-surface/90 px-2 py-0.5 text-[10px] text-text-secondary shadow-card">
-            video
-          </span>
-        )}
-      </button>
-    </motion.div>
+        >
+          <svg viewBox="0 0 8 8" className="h-2 w-2 fill-current" aria-hidden="true">
+            <path d="M1 0.5 L7 4 L1 7.5 Z" />
+          </svg>
+          video
+        </span>
+      )}
+    </button>
   )
 }
