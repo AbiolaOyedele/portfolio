@@ -34,5 +34,12 @@ export default function SiteMenu({ className }: SiteMenuProps = {}): React.JSX.E
     active: link.href === '/' ? pathname === '/' : pathname.startsWith(link.href),
   }))
 
-  return <CircleMenu items={items} resetKey={pathname} {...(className !== undefined ? { className } : {})} />
+  return (
+    <CircleMenu
+      items={items}
+      resetKey={pathname}
+      showTapHint={pathname === '/'}
+      {...(className !== undefined ? { className } : {})}
+    />
+  )
 }

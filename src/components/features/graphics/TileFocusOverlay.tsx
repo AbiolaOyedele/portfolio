@@ -47,6 +47,22 @@ export function TileFocusOverlay({ projects, initialIndex, onClose }: TileFocusO
   const coverUrl = cloudinaryUrl(project.cover_url, { width: 1080 })
   const aspect = getProjectAspect(project)
 
+  // Warm the browser cache for the images on either side of the current one so
+  // a swipe lands on an already-loaded image instead of a blank card. Runs
+  // whenever the index moves, covering a ±2 window in both directions.
+  useEffect(() => {
+    const total = projects.length
+    if (total <= 1) return
+    for (const step of [1, -1, 2, -2]) {
+      const neighbour = projects[(index + step + total) % total]
+      const url = cloudinaryUrl(neighbour?.cover_url ?? null, { width: 1080 })
+      if (url) {
+        const img = new window.Image()
+        img.src = url
+      }
+    }
+  }, [index, projects])
+
   // Enter animation.
   useEffect(() => {
     const ctx = gsap.context(() => {

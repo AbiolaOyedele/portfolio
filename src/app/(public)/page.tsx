@@ -1,15 +1,17 @@
 import type { ReactElement } from 'react'
 import RotatingHero from './RotatingHero'
+import LockBodyScroll from './LockBodyScroll'
 
 /**
- * Landing page — rebuilt section by section. Currently the hero only;
- * the nav and footer are added next. Stays a Server Component — the
- * rotating headline is isolated in the `RotatingHero` client leaf.
+ * Landing page — a single fixed-height hero that never scrolls. Stays a Server
+ * Component; the rotating headline (`RotatingHero`) and the scroll lock
+ * (`LockBodyScroll`) are isolated client leaves.
  */
 export default function HomePage(): ReactElement {
   return (
-    <main className="min-h-screen">
-      <section className="flex min-h-screen items-center px-6 md:px-12 lg:px-20">
+    <main className="h-[100dvh] overflow-hidden">
+      <LockBodyScroll />
+      <section className="flex h-[100dvh] items-center px-6 md:px-12 lg:px-20">
         <RotatingHero />
       </section>
     </main>

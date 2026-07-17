@@ -34,6 +34,11 @@ export function GraphicsCanvas({ projects, isInert, focusedProjectId, onCardFocu
   const [bucket, setBucket] = useState(GRAPHICS_BUCKETS.mobile)
   const [viewport, setViewport] = useState({ w: 0, h: 0 })
   const [showTooltip, setShowTooltip] = useState(true)
+  // Scratch-to-reveal is desktop-only (real pointer + room to hover). Tiles are
+  // shown immediately on mobile/tablet. Revealed ids are shared so every tiled
+  // copy of the same project opens together.
+  const [scratchEnabled, setScratchEnabled] = useState(false)
+  const [revealedIds, setRevealedIds] = useState<Set<string>>(new Set())
 
   // Pan + inertia live in refs so movement never triggers React renders.
   const panRef = useRef({ x: 0, y: 0 })
@@ -56,6 +61,23 @@ export function GraphicsCanvas({ projects, isInert, focusedProjectId, onCardFocu
     window.addEventListener('resize', measure)
     return () => window.removeEventListener('resize', measure)
   }, [])
+
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 1024px) and (pointer: fine)')
+    const update = (): void => setScratchEnabled(mq.matches)
+    update()
+    mq.addEventListener('change', update)
+    return () => mq.removeEventListener('change', update)
+  }, [])
+
+  const handleReveal = (id: string): void => {
+    setRevealedIds((prev) => {
+      if (prev.has(id)) return prev
+      const next = new Set(prev)
+      next.add(id)
+      return next
+    })
+  }
 
   const { tiles, blockWidth, blockHeight } = useMemo(
     () => computeGraphicsBlock(projects, bucket),
@@ -209,7 +231,10 @@ export function GraphicsCanvas({ projects, isInert, focusedProjectId, onCardFocu
                   project={tile.project}
                   aspect={tile.aspect}
                   isVisible
+                  scratchEnabled={scratchEnabled}
+                  isRevealed={revealedIds.has(tile.project.id)}
                   isFocused={focusedProjectId === tile.project.id}
+                  onReveal={handleReveal}
                   onFocus={() => onCardFocus(tile.project)}
                 />
               </div>
@@ -221,11 +246,11 @@ export function GraphicsCanvas({ projects, isInert, focusedProjectId, onCardFocu
       {/* Tooltip — shown until the first interaction. */}
       <div
         className={cn(
-          'pointer-events-none absolute left-1/2 top-6 z-20 -translate-x-1/2 rounded-full border border-black/10 bg-[#3399FF] px-3 py-1.5 text-[14px] leading-tight text-white shadow-ui transition-opacity duration-300',
+          'pointer-events-none absolute left-1/2 top-6 z-20 -translate-x-1/2 whitespace-nowrap rounded-full border border-black/10 bg-accent px-4 py-2 text-center text-[13px] font-medium text-white shadow-ui transition-opacity duration-300 sm:text-[14px]',
           showTooltip && !isInert ? 'opacity-100' : 'opacity-0',
         )}
       >
-        Drag to explore — tap any image.
+        {scratchEnabled ? 'Hover to reveal · drag to explore' : 'Drag to explore · tap any image'}
       </div>
     </div>
   )

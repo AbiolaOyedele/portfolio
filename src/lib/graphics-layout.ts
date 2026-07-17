@@ -61,37 +61,67 @@ export interface GraphicsBlockLayout {
   blockHeight: number
 }
 
+interface ColumnTile {
+  project: Project
+  aspect: number
+  height: number
+}
+
 /**
  * Lay every project out into a single repeatable block of fixed-width columns
  * (shortest-column-first, no rotation) — the unit the infinite canvas tiles
  * seamlessly in both axes. Deterministic so server and client agree (no
  * Math.random), driven purely by project id + measured cover aspect.
+ *
+ * Every column is then justified to fill the block's full height by spreading
+ * its leftover space evenly between its own tiles. Without this, shorter
+ * columns end well above the tallest one and leave a dead empty band at the
+ * vertical wrap seam; with it, each column tiles seamlessly against its own
+ * next copy and the canvas has no gaps.
  */
 export function computeGraphicsBlock(projects: Project[], bucket: GraphicsBucket): GraphicsBlockLayout {
   const { columnWidth, gap, columns } = bucket
-  const columnHeights = new Array<number>(columns).fill(gap)
-  const tiles: GraphicsTileLayout[] = []
+
+  const columnTiles: ColumnTile[][] = Array.from({ length: columns }, () => [])
+  // Running packed height (tiles + gaps) per column, used only to pick the
+  // shortest column for the next tile.
+  const packedHeights = new Array<number>(columns).fill(gap)
+  // Sum of tile heights per column (no gaps) — the basis for justification.
+  const contentHeights = new Array<number>(columns).fill(0)
 
   for (const project of projects) {
     const aspect = snapAspect(getProjectAspect(project))
-    const width = columnWidth
-    const height = Math.round(width / aspect)
+    const height = Math.round(columnWidth / aspect)
 
-    // Shortest column first — keeps the block roughly rectangular so the
-    // vertical wrap seam stays small.
     let column = 0
     for (let i = 1; i < columns; i++) {
-      if (columnHeights[i]! < columnHeights[column]!) column = i
+      if (packedHeights[i]! < packedHeights[column]!) column = i
     }
 
-    const top = columnHeights[column]!
-    const left = gap + column * (columnWidth + gap)
-    tiles.push({ project, left, top, width, height, aspect })
-    columnHeights[column] = top + height + gap
+    columnTiles[column]!.push({ project, aspect, height })
+    packedHeights[column] = packedHeights[column]! + height + gap
+    contentHeights[column] = contentHeights[column]! + height
+  }
+
+  const blockHeight = Math.max(...packedHeights, gap)
+
+  const tiles: GraphicsTileLayout[] = []
+  for (let c = 0; c < columns; c++) {
+    const list = columnTiles[c]!
+    const left = gap + c * (columnWidth + gap)
+    // Even gap that makes this column's tiles + gaps sum to exactly
+    // blockHeight, so its next vertical copy butts up flush (no dead space).
+    // The tallest column resolves to ~`gap`; shorter columns breathe a little
+    // more. First tile sits at the block edge; the seam gap is the trailing one.
+    const gapEach = list.length > 0 ? (blockHeight - contentHeights[c]!) / list.length : 0
+    let top = 0
+    for (const t of list) {
+      tiles.push({ project: t.project, left, top, width: columnWidth, height: t.height, aspect: t.aspect })
+      top += t.height + gapEach
+    }
   }
 
   const blockWidth = gap + columns * (columnWidth + gap)
-  const blockHeight = Math.max(...columnHeights, gap)
   return { tiles, blockWidth, blockHeight }
 }
 

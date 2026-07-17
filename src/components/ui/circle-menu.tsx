@@ -196,6 +196,8 @@ export interface CircleMenuProps {
   items: CircleMenuItem[]
   /** Pass a value that changes on navigation (e.g. pathname) to force the menu shut. */
   resetKey?: string
+  /** Show a small "Tap here" hint above the arrow (home page only). */
+  showTapHint?: boolean
   className?: string
 }
 
@@ -203,7 +205,7 @@ export interface CircleMenuProps {
  * Corner-anchored radial navigation menu. Fixed to the bottom-right of the viewport;
  * items fan out along a top-left quarter-arc so nothing spreads off-screen at any size.
  */
-export function CircleMenu({ items, resetKey, className }: CircleMenuProps): React.JSX.Element {
+export function CircleMenu({ items, resetKey, showTapHint = false, className }: CircleMenuProps): React.JSX.Element {
   const [isOpen, setIsOpen] = useState(false)
   const sizes = useResponsiveSizes()
 
@@ -241,9 +243,16 @@ export function CircleMenu({ items, resetKey, className }: CircleMenuProps): Rea
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.3 }}
-                className="pointer-events-none absolute bottom-full left-1/2 mb-1 h-10 w-10 -translate-x-1/2 sm:h-12 sm:w-12"
+                className="pointer-events-none absolute bottom-full left-1/2 mb-1 flex -translate-x-1/2 flex-col items-center"
               >
-                <LottieArrow className="h-full w-full" />
+                {showTapHint && (
+                  <span className="mb-0.5 whitespace-nowrap text-[11px] font-medium text-text-secondary sm:text-xs">
+                    Tap here
+                  </span>
+                )}
+                <span className="h-10 w-10 sm:h-12 sm:w-12">
+                  <LottieArrow className="h-full w-full" />
+                </span>
               </motion.div>
             )}
           </AnimatePresence>
