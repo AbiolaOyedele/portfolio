@@ -1,22 +1,16 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Folder, LayoutGrid } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { computeGraphicsBlock, getGraphicsBucket, GRAPHICS_BUCKETS } from '@/lib/graphics-layout'
-import { GRAPHICS_SUBCATEGORIES, type Project } from '@/types/project'
+import type { Project } from '@/types/project'
 import { GraphicsCanvasCard } from './GraphicsCanvasCard'
-
-// null = "All" — first stop in the cycle the category pill steps through.
-const FILTER_CYCLE: readonly (string | null)[] = [null, ...GRAPHICS_SUBCATEGORIES.map((sub) => sub.key)]
-
-function filterLabel(filter: string | null): string {
-  if (filter === null) return 'All'
-  return GRAPHICS_SUBCATEGORIES.find((sub) => sub.key === filter)?.label ?? 'All'
-}
 
 const INERTIA_DECAY = 0.92
 const MIN_VELOCITY = 0.05
+// A pointer that travels further than this before release is a pan, not a tap
+// — its click on a tile is swallowed so dragging never accidentally opens one.
+const TAP_SLOP = 8
 
 export interface GraphicsCanvasProps {
   projects: Project[]
@@ -26,12 +20,12 @@ export interface GraphicsCanvasProps {
 }
 
 /**
- * Infinite, free-scrolling canvas of scratch-to-reveal tiles. One repeatable
- * block of columns is tiled across the viewport in both axes and wrapped with
- * modular arithmetic, so panning (pointer drag with velocity inertia) and
- * trackpad/wheel scrolling roam endlessly in every direction. Pan is applied
- * imperatively to a single transform — the tile DOM never re-renders while
- * moving.
+ * Infinite, free-scrolling canvas of image tiles. One repeatable block of
+ * columns is tiled across the viewport in both axes and wrapped with modular
+ * arithmetic, so panning (pointer drag with velocity inertia, starting
+ * anywhere — including on a tile) and trackpad/wheel scrolling roam endlessly
+ * in every direction. Pan is applied imperatively to a single transform — the
+ * tile DOM never re-renders while moving.
  */
 export function GraphicsCanvas({ projects, isInert, focusedProjectId, onCardFocus }: GraphicsCanvasProps): React.JSX.Element {
   const wrapperRef = useRef<HTMLDivElement>(null)
@@ -39,15 +33,14 @@ export function GraphicsCanvas({ projects, isInert, focusedProjectId, onCardFocu
 
   const [bucket, setBucket] = useState(GRAPHICS_BUCKETS.mobile)
   const [viewport, setViewport] = useState({ w: 0, h: 0 })
-  const [activeFilter, setActiveFilter] = useState<string | null>(null)
-  const [revealedIds, setRevealedIds] = useState<Set<string>>(new Set())
   const [showTooltip, setShowTooltip] = useState(true)
 
   // Pan + inertia live in refs so movement never triggers React renders.
   const panRef = useRef({ x: 0, y: 0 })
   const velocityRef = useRef({ x: 0, y: 0 })
-  const dragRef = useRef<{ active: boolean; lastX: number; lastY: number; lastT: number }>({
+  const dragRef = useRef<{ active: boolean; moved: number; lastX: number; lastY: number; lastT: number }>({
     active: false,
+    moved: 0,
     lastX: 0,
     lastY: 0,
     lastT: 0,
@@ -114,9 +107,8 @@ export function GraphicsCanvas({ projects, isInert, focusedProjectId, onCardFocu
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>): void => {
     stopInertia()
     dismissTooltip()
-    dragRef.current = { active: true, lastX: e.clientX, lastY: e.clientY, lastT: performance.now() }
+    dragRef.current = { active: true, moved: 0, lastX: e.clientX, lastY: e.clientY, lastT: performance.now() }
     velocityRef.current = { x: 0, y: 0 }
-    e.currentTarget.setPointerCapture(e.pointerId)
   }
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>): void => {
@@ -126,6 +118,12 @@ export function GraphicsCanvas({ projects, isInert, focusedProjectId, onCardFocu
     const dx = e.clientX - drag.lastX
     const dy = e.clientY - drag.lastY
     const dt = Math.max(1, now - drag.lastT)
+    drag.moved += Math.abs(dx) + Math.abs(dy)
+    // Capture only once this is clearly a pan — capturing on pointer-down
+    // would retarget the eventual click to the wrapper and break tile taps.
+    if (drag.moved > TAP_SLOP && !e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.setPointerCapture(e.pointerId)
+    }
     panRef.current.x += dx
     panRef.current.y += dy
     velocityRef.current = { x: (dx / dt) * 16, y: (dy / dt) * 16 }
@@ -138,8 +136,18 @@ export function GraphicsCanvas({ projects, isInert, focusedProjectId, onCardFocu
   const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>): void => {
     if (!dragRef.current.active) return
     dragRef.current.active = false
-    e.currentTarget.releasePointerCapture(e.pointerId)
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId)
+    }
     runInertia()
+  }
+
+  // Swallow tile clicks that were really the tail end of a pan gesture.
+  const handleClickCapture = (e: React.MouseEvent<HTMLDivElement>): void => {
+    if (dragRef.current.moved > TAP_SLOP) {
+      e.preventDefault()
+      e.stopPropagation()
+    }
   }
 
   // Trackpad / wheel = free 2D scroll in every direction.
@@ -161,23 +169,6 @@ export function GraphicsCanvas({ projects, isInert, focusedProjectId, onCardFocu
 
   useEffect(() => stopInertia, [])
 
-  const handleReveal = (id: string): void => {
-    setRevealedIds((prev) => {
-      if (prev.has(id)) return prev
-      const next = new Set(prev)
-      next.add(id)
-      return next
-    })
-  }
-
-  const handleCycleFilter = (): void => {
-    const currentIndex = FILTER_CYCLE.indexOf(activeFilter)
-    setActiveFilter(FILTER_CYCLE[(currentIndex + 1) % FILTER_CYCLE.length] ?? null)
-  }
-
-  const isTileVisible = (project: Project): boolean =>
-    activeFilter === null || project.subcategory === activeFilter
-
   const copyIndices = useMemo(
     () => Array.from({ length: rows }, (_, r) => Array.from({ length: cols }, (_, c) => ({ c, r }))).flat(),
     [rows, cols],
@@ -194,6 +185,7 @@ export function GraphicsCanvas({ projects, isInert, focusedProjectId, onCardFocu
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
+      onClickCapture={handleClickCapture}
       aria-hidden={isInert}
     >
       <div
@@ -216,10 +208,8 @@ export function GraphicsCanvas({ projects, isInert, focusedProjectId, onCardFocu
                 <GraphicsCanvasCard
                   project={tile.project}
                   aspect={tile.aspect}
-                  isVisible={isTileVisible(tile.project)}
-                  isRevealed={revealedIds.has(tile.project.id)}
+                  isVisible
                   isFocused={focusedProjectId === tile.project.id}
-                  onReveal={handleReveal}
                   onFocus={() => onCardFocus(tile.project)}
                 />
               </div>
@@ -228,35 +218,14 @@ export function GraphicsCanvas({ projects, isInert, focusedProjectId, onCardFocu
         ))}
       </div>
 
-      {/* Tooltip — reference copy, shown until the first interaction. */}
+      {/* Tooltip — shown until the first interaction. */}
       <div
         className={cn(
           'pointer-events-none absolute left-1/2 top-6 z-20 -translate-x-1/2 rounded-full border border-black/10 bg-[#3399FF] px-3 py-1.5 text-[14px] leading-tight text-white shadow-ui transition-opacity duration-300',
           showTooltip && !isInert ? 'opacity-100' : 'opacity-0',
         )}
       >
-        Hover, drag, and click to explore.
-      </div>
-
-      {/* Category pill — bottom-center, cycles All → subcategories (no counter). */}
-      <div
-        className={cn(
-          'absolute bottom-8 left-1/2 z-20 -translate-x-1/2 transition-opacity duration-200',
-          isInert && 'pointer-events-none opacity-0',
-        )}
-      >
-        <button
-          type="button"
-          onClick={handleCycleFilter}
-          onPointerDown={(e) => e.stopPropagation()}
-          className="flex h-14 w-[200px] items-center justify-between rounded-full border border-black/10 bg-white px-5 text-[16px] text-black shadow-ui transition-transform duration-200 hover:scale-[1.025] active:scale-95"
-        >
-          <span className="flex items-center gap-2">
-            <Folder className="h-4 w-4 text-[#2384E6]" />
-            {filterLabel(activeFilter)}
-          </span>
-          <LayoutGrid className="h-4 w-4 text-black/40" />
-        </button>
+        Drag to explore — tap any image.
       </div>
     </div>
   )

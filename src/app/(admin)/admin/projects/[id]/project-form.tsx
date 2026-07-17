@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 
+import CloudinaryUploadButton from '@/components/features/admin/CloudinaryUploadButton'
 import ImageUrlListInput from '@/components/features/admin/ImageUrlListInput'
 import Button from '@/components/ui/Button'
 import { PROJECT_CATEGORIES, type Project, type ProjectCategory } from '@/types/project'
@@ -270,6 +271,13 @@ export default function ProjectForm({ defaultValues }: ProjectFormProps): React.
           placeholder="https://res.cloudinary.com/..."
           className={FIELD_CLASSES}
         />
+        <div className="mt-2">
+          <CloudinaryUploadButton
+            label="Upload cover image"
+            accept="image/png,image/jpeg,image/webp,image/gif"
+            onUploaded={(url) => updateField('cover_url', url)}
+          />
+        </div>
       </FormField>
 
       <div>
@@ -277,14 +285,21 @@ export default function ProjectForm({ defaultValues }: ProjectFormProps): React.
         {fieldErrors.images && <p className="mt-2 text-sm text-red-600">{fieldErrors.images}</p>}
       </div>
 
-      <FormField label="Video URL (Vimeo)" error={fieldErrors.video_url}>
+      <FormField label="Video URL (Vimeo or uploaded MP4)" error={fieldErrors.video_url}>
         <input
           type="url"
           value={values.video_url}
           onChange={(e) => updateField('video_url', e.target.value)}
-          placeholder="https://player.vimeo.com/video/..."
+          placeholder="https://player.vimeo.com/video/... or an uploaded .mp4"
           className={FIELD_CLASSES}
         />
+        <div className="mt-2">
+          <CloudinaryUploadButton
+            label="Upload video clip"
+            accept="video/mp4,video/webm"
+            onUploaded={(url) => updateField('video_url', url)}
+          />
+        </div>
       </FormField>
 
       <FormField label="Tags (comma-separated)" error={fieldErrors.tagsInput}>

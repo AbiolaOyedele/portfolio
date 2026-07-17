@@ -2,6 +2,7 @@
 
 import { Plus, X } from 'lucide-react'
 import { useId, useState } from 'react'
+import CloudinaryUploadButton from './CloudinaryUploadButton'
 
 export interface ImageUrlListInputProps {
   /** Current list of image URLs. */
@@ -84,6 +85,14 @@ export default function ImageUrlListInput({
         >
           <Plus className="w-4 h-4" />
         </button>
+      </div>
+
+      <div className="mt-2">
+        <CloudinaryUploadButton
+          label="Upload image"
+          accept="image/png,image/jpeg,image/webp,image/gif"
+          onUploaded={(url) => onChange([...value, url])}
+        />
       </div>
     </div>
   )

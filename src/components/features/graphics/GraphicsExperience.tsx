@@ -1,28 +1,22 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useVotedProjects } from '@/hooks/useVotedProjects'
-import type { Project, VoteResult } from '@/types/project'
+import type { Project } from '@/types/project'
 import { GraphicsCanvas } from './GraphicsCanvas'
 import { TileFocusOverlay } from './TileFocusOverlay'
-import { ProjectDetailModal } from './ProjectDetailModal'
 
 export interface GraphicsExperienceProps {
   projects: Project[]
 }
 
 /**
- * Top-level client boundary for the /graphics page: owns which card is
- * focused, whether its detail panel is open, and vote-count overrides —
- * `GraphicsCanvas` itself stays permanently mounted so its pan position and
- * revealed-card set survive open/close, and closing back to the canvas
- * always lands exactly where you left off.
+ * Top-level client boundary for the /graphics page: owns which project is
+ * focused in the full-screen viewer. `GraphicsCanvas` itself stays
+ * permanently mounted so its pan position survives open/close, and closing
+ * back to the canvas always lands exactly where you left off.
  */
 export function GraphicsExperience({ projects }: GraphicsExperienceProps): React.JSX.Element {
-  const [focusedProject, setFocusedProject] = useState<Project | null>(null)
-  const [isDetailOpen, setIsDetailOpen] = useState(false)
-  const [voteOverrides, setVoteOverrides] = useState<Record<string, VoteResult>>({})
-  const { votedIds, markVoted } = useVotedProjects()
+  const [focusedIndex, setFocusedIndex] = useState<number | null>(null)
 
   // Full-bleed immersive canvas — lock outer page scroll for the whole
   // visit so (public)/layout.tsx's unconditional Footer (rendered below
@@ -36,17 +30,11 @@ export function GraphicsExperience({ projects }: GraphicsExperienceProps): React
   }, [])
 
   const handleCardFocus = (project: Project): void => {
-    setFocusedProject(project)
+    const index = projects.findIndex((p) => p.id === project.id)
+    setFocusedIndex(index >= 0 ? index : 0)
   }
 
-  const handleCloseFocus = (): void => {
-    setIsDetailOpen(false)
-    setFocusedProject(null)
-  }
-
-  const handleVoted = (projectId: string, result: VoteResult): void => {
-    setVoteOverrides((prev) => ({ ...prev, [projectId]: result }))
-  }
+  const focusedProject = focusedIndex !== null ? (projects[focusedIndex] ?? null) : null
 
   return (
     <>
@@ -56,23 +44,8 @@ export function GraphicsExperience({ projects }: GraphicsExperienceProps): React
         focusedProjectId={focusedProject?.id ?? null}
         onCardFocus={handleCardFocus}
       />
-      {focusedProject && (
-        <TileFocusOverlay
-          project={focusedProject}
-          isDetailOpen={isDetailOpen}
-          onClose={handleCloseFocus}
-          onMoreInfo={() => setIsDetailOpen(true)}
-        />
-      )}
-      {focusedProject && isDetailOpen && (
-        <ProjectDetailModal
-          project={focusedProject}
-          voteOverrides={voteOverrides}
-          votedIds={votedIds}
-          onVoted={handleVoted}
-          onMarkVoted={markVoted}
-          onClose={() => setIsDetailOpen(false)}
-        />
+      {focusedIndex !== null && (
+        <TileFocusOverlay projects={projects} initialIndex={focusedIndex} onClose={() => setFocusedIndex(null)} />
       )}
     </>
   )

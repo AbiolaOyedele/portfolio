@@ -14,6 +14,11 @@ const envSchema = z.object({
   SUPABASE_SERVICE_ROLE_KEY: optionalString(z.string().min(1)),
   ADMIN_EMAIL: z.string().email(),
   SENTRY_DSN: optionalString(z.string().url()),
+  // Cloudinary (unsigned client-side uploads from the admin). Optional so the
+  // app still builds/runs when uploads aren't configured — pasting image URLs
+  // keeps working. The upload widget surfaces a clear message when unset.
+  NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME: optionalString(z.string().min(1)),
+  NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET: optionalString(z.string().min(1)),
 })
 
 const parsed = envSchema.safeParse(process.env)
