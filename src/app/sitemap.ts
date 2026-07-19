@@ -1,19 +1,16 @@
 import type { MetadataRoute } from 'next'
 
+import { isUnbuilt } from '@/config/unbuilt-routes'
 import { logger } from '@/lib/logger'
 import { createStaticSupabaseClient } from '@/lib/supabase/static'
 import { getPublicProjects } from '@/services/projects.service'
 
 const BASE_URL = 'https://abiola.theruff.agency'
 
-const STATIC_ROUTES: readonly string[] = [
-  '',
-  '/graphics',
-  '/motion',
-  '/playground',
-  '/about',
-  '/thoughts',
-]
+// Only routes that actually render. Everything in `UNBUILT_ROUTES`
+// (src/config/unbuilt-routes.ts) answers 404, so it must stay out of the
+// sitemap — add each path back as it launches.
+const STATIC_ROUTES: readonly string[] = ['', '/graphics']
 
 /**
  * Builds the sitemap for all static marketing routes plus every visible
@@ -26,6 +23,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     url: `${BASE_URL}${path}`,
     lastModified: new Date(),
   }))
+
+  // `/project/[slug]` is gated too — skip the fetch entirely rather than
+  // publish detail URLs that answer 404.
+  if (isUnbuilt('/project')) return staticEntries
 
   try {
     const supabase = createStaticSupabaseClient()

@@ -5,6 +5,9 @@ import { getPublicProjects } from '@/services/projects.service'
 import { isAppError } from '@/lib/errors'
 import type { Project } from '@/types/project'
 import MotionCard from '@/components/features/projects/MotionCard'
+import { notFound } from 'next/navigation'
+
+import { isUnbuilt } from '@/config/unbuilt-routes'
 
 export const metadata: Metadata = {
   title: 'Motion',
@@ -21,6 +24,10 @@ export const metadata: Metadata = {
  * covers the empty and error states, since both depend on the fetch result.
  */
 export default async function MotionPage(): Promise<React.JSX.Element> {
+  // Not launched yet — see src/config/unbuilt-routes.ts. Renders the segment's
+  // not-found.tsx (<ComingSoon />) with a real 404 status.
+  if (isUnbuilt('/motion')) notFound()
+
   let projects: Project[]
   let loadError: string | null = null
 

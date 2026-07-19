@@ -3,6 +3,9 @@ import type { Metadata } from 'next'
 import AboutContent from '@/components/features/about/AboutContent'
 import { getPublicAbout } from '@/services/about.service'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { notFound } from 'next/navigation'
+
+import { isUnbuilt } from '@/config/unbuilt-routes'
 
 export const metadata: Metadata = {
   title: 'About',
@@ -19,6 +22,10 @@ export const metadata: Metadata = {
  * type-narrow defensively rather than assume that invariant holds forever.
  */
 export default async function AboutPage(): Promise<React.JSX.Element> {
+  // Not launched yet — see src/config/unbuilt-routes.ts. Renders the segment's
+  // not-found.tsx (<ComingSoon />) with a real 404 status.
+  if (isUnbuilt('/about')) notFound()
+
   const supabase = await createServerSupabaseClient()
   const about = await getPublicAbout(supabase)
 

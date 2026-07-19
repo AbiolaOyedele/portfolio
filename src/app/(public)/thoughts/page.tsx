@@ -2,6 +2,9 @@ import type { Metadata } from 'next'
 import ThoughtsHero from '@/components/features/thoughts/ThoughtsHero'
 import ThoughtsPostGrid from '@/components/features/thoughts/ThoughtsPostGrid'
 import { thoughts } from '@/components/features/thoughts/thoughts-data'
+import { notFound } from 'next/navigation'
+
+import { isUnbuilt } from '@/config/unbuilt-routes'
 
 export const metadata: Metadata = {
   title: 'Thoughts',
@@ -20,6 +23,10 @@ export const metadata: Metadata = {
  * its own content, matching every other route.
  */
 export default function ThoughtsPage(): React.JSX.Element {
+  // Not launched yet — see src/config/unbuilt-routes.ts. Renders the segment's
+  // not-found.tsx (<ComingSoon />) with a real 404 status.
+  if (isUnbuilt('/thoughts')) notFound()
+
   return (
     <>
       <ThoughtsHero />
